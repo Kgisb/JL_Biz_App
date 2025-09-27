@@ -2829,124 +2829,174 @@ elif view == "Lead Movement":
     )
 
     # =====================================================================
-    #                          📊 Deal Owner breakdown (BOTTOM)
+    #        📊 Inactivity distribution — Deal Owner / Academic Counselor
     # =====================================================================
     st.markdown("---")
     st.markdown("### 📊 Inactivity distribution — Deal Owner (Academic Counselor)")
 
-    deal_owner_col = find_col(df, [
-        "Deal Owner", "Owner",
-        "Academic Counselor", "Academic Counsellor",
+    # Detect both fields separately
+    deal_owner_raw = find_col(df, ["Deal Owner", "Owner"])
+    acad_couns_raw = find_col(df, [
         "Student/Academic Counselor", "Student/Academic Counsellor",
+        "Academic Counselor", "Academic Counsellor",
         "Counselor", "Counsellor"
     ])
 
-    if not deal_owner_col or deal_owner_col not in d_work.columns:
-        st.info("Deal Owner / Academic Counselor column not found — skipping owner-wise view.")
-    else:
-        d_work["_owner"] = d_work[deal_owner_col].fillna("Unknown").replace("", "Unknown").astype(str)
+    # Owner field selection: choose one or combine
+    owner_mode = st.selectbox(
+        "Owner dimension for analysis",
+        [
+            "Deal Owner",
+            "Student/Academic Counselor",
+            "Combine (Deal Owner → Student/Academic Counselor)",
+            "Combine (Student/Academic Counselor → Deal Owner)",
+        ],
+        index=0,
+        key="lm_owner_mode"
+    )
 
-        # Controls: Aggregate vs Split + Top-N owners
-        col_oview, col_topn = st.columns([1.2, 1])
-        with col_oview:
-            owner_view = st.radio(
-                "View mode",
-                ["Aggregate (overall)", "Split by Academic Counselor"],
-                index=1, horizontal=False, key="lm_owner_view"
-            )
-        with col_topn:
-            owner_counts_all = d_work["_owner"].value_counts()
-            max_top = min(20, max(5, len(owner_counts_all)))
-            top_n = st.number_input("Top N owners for charts", min_value=5, max_value=max_top, value=min(10, max_top), step=1, key="lm_owner_topn")
+    # Validate availability
+    def _series_or_none(colname):
+        return d_work[colname] if (colname and colname in d_work.columns) else None
 
-        # Limit to Top-N by presence for readability
-        top_owners = owner_counts_all.head(int(top_n)).index.tolist()
-        d_top = d_work[d_work["_owner"].isin(top_owners)].copy()
+    s_owner = _series_or_none(deal_owner_raw)
+    s_acad  = _series_or_none(acad_couns_raw)
 
-        # Aggregate mode: bucket totals overall (no owner split)
-        if owner_view == "Aggregate (overall)":
-            agg_bucket = (
-                d_top.groupby("Bucket")
-                     .size().reset_index(name="Count")
-            )
-            chart_owner_agg = (
-                alt.Chart(agg_bucket)
-                .mark_bar(opacity=0.9)
-                .encode(
-                    x=alt.X("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
-                    y=alt.Y("Count:Q", title="Count"),
-                    tooltip=[alt.Tooltip("Bucket:N"), alt.Tooltip("Count:Q")]
-                )
-                .properties(height=320, title=f"Inactivity by {ref_pick} — Aggregate (Top {len(top_owners)} owners)")
-            )
-            st.altair_chart(chart_owner_agg, use_container_width=True)
+    if owner_mode == "Deal Owner" and s_owner is None:
+        st.info("‘Deal Owner’ column not found in the current dataset.")
+        st.stop()
+    if owner_mode == "Student/Academic Counselor" and s_acad is None:
+        st.info("‘Student/Academic Counselor’ column not found in the current dataset.")
+        st.stop()
+    if "Combine" in owner_mode and (s_owner is None and s_acad is None):
+        st.info("Neither ‘Deal Owner’ nor ‘Student/Academic Counselor’ columns are present.")
+        st.stop()
 
-        else:
-            # Split mode: stacked by owner across buckets (Bucket on x, colors = owner)
-            by_owner_bucket = (
-                d_top.groupby(["Bucket", "_owner"])
-                     .size().reset_index(name="Count")
-            )
-            chart_owner_split = (
-                alt.Chart(by_owner_bucket)
-                .mark_bar(opacity=0.9)
-                .encode(
-                    x=alt.X("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
-                    y=alt.Y("Count:Q", stack=True, title="Count"),
-                    color=alt.Color("_owner:N", title="Academic Counselor", legend=alt.Legend(orient="bottom")),
-                    tooltip=[alt.Tooltip("Bucket:N"), alt.Tooltip("_owner:N", title="Academic Counselor"), alt.Tooltip("Count:Q")]
-                )
-                .properties(height=360, title=f"Inactivity by {ref_pick} — stacked by Academic Counselor (Top {len(top_owners)})")
-            )
-            st.altair_chart(chart_owner_split, use_container_width=True)
-
-        # >>> NEW: Owner on X-axis stacked by inactivity bucket <<<
-        st.markdown("#### Inactivity distribution — stacked by Bucket (Owner on X-axis)")
-        owner_x_bucket = (
-            d_top.groupby(["_owner", "Bucket"])
-                .size().reset_index(name="Count")
+    # Build the owner dimension
+    if owner_mode == "Deal Owner":
+        d_work["_owner"] = s_owner.fillna("Unknown").replace("", "Unknown").astype(str)
+    elif owner_mode == "Student/Academic Counselor":
+        d_work["_owner"] = s_acad.fillna("Unknown").replace("", "Unknown").astype(str)
+    elif owner_mode == "Combine (Deal Owner → Student/Academic Counselor)":
+        # Prefer Deal Owner, fallback to Academic Counselor
+        d_work["_owner"] = (
+            (s_owner.fillna("").astype(str))
+            .mask(lambda x: x.str.strip().eq("") & s_acad.notna(), s_acad.astype(str))
+            .replace("", "Unknown")
+            .fillna("Unknown")
+            .astype(str)
         )
-        chart_owner_x = (
-            alt.Chart(owner_x_bucket)
+    else:  # Combine (Student/Academic Counselor → Deal Owner)
+        d_work["_owner"] = (
+            (s_acad.fillna("").astype(str))
+            .mask(lambda x: x.str.strip().eq("") & (s_owner.notna()), s_owner.astype(str))
+            .replace("", "Unknown")
+            .fillna("Unknown")
+            .astype(str)
+        )
+
+    # Controls: Aggregate vs Split + Top-N owners
+    col_oview, col_topn = st.columns([1.2, 1])
+    with col_oview:
+        owner_view = st.radio(
+            "View mode",
+            ["Aggregate (overall)", "Split by Academic Counselor"],
+            index=1, horizontal=False, key="lm_owner_view"
+        )
+    with col_topn:
+        owner_counts_all = d_work["_owner"].value_counts()
+        max_top = min(30, max(5, len(owner_counts_all)))
+        top_n = st.number_input("Top N owners for charts", min_value=5, max_value=max_top, value=min(12, max_top), step=1, key="lm_owner_topn")
+
+    # Limit to Top-N for readability
+    top_owners = owner_counts_all.head(int(top_n)).index.tolist()
+    d_top = d_work[d_work["_owner"].isin(top_owners)].copy()
+
+    # Aggregate mode: bucket totals overall (no owner split)
+    if owner_view == "Aggregate (overall)":
+        agg_bucket = (
+            d_top.groupby("Bucket")
+                 .size().reset_index(name="Count")
+        )
+        chart_owner_agg = (
+            alt.Chart(agg_bucket)
             .mark_bar(opacity=0.9)
             .encode(
-                x=alt.X("_owner:N", title="Academic Counselor", axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("Count:Q", stack=True, title="Count"),
-                color=alt.Color("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
-                tooltip=[alt.Tooltip("_owner:N", title="Academic Counselor"),
-                         alt.Tooltip("Bucket:N", title="Bucket"),
-                         alt.Tooltip("Count:Q")]
+                x=alt.X("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
+                y=alt.Y("Count:Q", title="Count"),
+                tooltip=[alt.Tooltip("Bucket:N"), alt.Tooltip("Count:Q")]
             )
-            .properties(height=380, title=f"Inactivity by {ref_pick} — Academic Counselor on X-axis (Top {len(top_owners)})")
+            .properties(height=320, title=f"Inactivity by {ref_pick} — Aggregate (Top {len(top_owners)} owners)")
         )
-        st.altair_chart(chart_owner_x, use_container_width=True)
+        st.altair_chart(chart_owner_agg, use_container_width=True)
 
-        # Owner table for currently selected inactivity range
-        st.markdown("#### Owners in selected inactivity range")
-        owner_range = (
-            d_work.loc[range_mask, "_owner"]
-                 .fillna("Unknown").astype(str)
-                 .value_counts().reset_index()
+    else:
+        # Split mode: stacked by owner across buckets (Bucket on x, colors = owner)
+        by_owner_bucket = (
+            d_top.groupby(["Bucket", "_owner"])
+                 .size().reset_index(name="Count")
         )
-        owner_range.columns = ["Academic Counselor", "Count"]
-        owner_range["Share %"] = (owner_range["Count"] / max(int(range_mask.sum()), 1) * 100).round(1)
-        st.dataframe(owner_range, use_container_width=True)
-
-        st.download_button(
-            "Download CSV — Owners (selected inactivity range)",
-            data=owner_range.to_csv(index=False).encode("utf-8"),
-            file_name="lead_movement_owners_selected_range.csv",
-            mime="text/csv",
-            key="lm_owner_dl"
+        chart_owner_split = (
+            alt.Chart(by_owner_bucket)
+            .mark_bar(opacity=0.9)
+            .encode(
+                x=alt.X("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
+                y=alt.Y("Count:Q", stack=True, title="Count"),
+                color=alt.Color("_owner:N", title="Academic Counselor", legend=alt.Legend(orient="bottom")),
+                tooltip=[alt.Tooltip("Bucket:N"), alt.Tooltip("_owner:N", title="Academic Counselor"), alt.Tooltip("Count:Q")]
+            )
+            .properties(height=360, title=f"Inactivity by {ref_pick} — stacked by Academic Counselor (Top {len(top_owners)})")
         )
+        st.altair_chart(chart_owner_split, use_container_width=True)
 
-        with st.expander("Show matching rows by owner (first 1000)"):
-            cols_show_owner = []
-            for c in [create_col, ref_col, dealstage_col, country_col, source_col, deal_owner_col]:
-                if c and c in d_work.columns:
-                    cols_show_owner.append(c)
-            preview_owner = d_work.loc[range_mask, cols_show_owner].head(1000)
-            st.dataframe(preview_owner, use_container_width=True)
+    # Additional chart: Owner on X-axis, stacked by bucket
+    st.markdown("#### Inactivity distribution — stacked by Bucket (Owner on X-axis)")
+    owner_x_bucket = (
+        d_top.groupby(["_owner", "Bucket"])
+             .size().reset_index(name="Count")
+    )
+    chart_owner_x = (
+        alt.Chart(owner_x_bucket)
+        .mark_bar(opacity=0.9)
+        .encode(
+            x=alt.X("_owner:N", title="Academic Counselor", axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y("Count:Q", stack=True, title="Count"),
+            color=alt.Color("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
+            tooltip=[alt.Tooltip("_owner:N", title="Academic Counselor"),
+                     alt.Tooltip("Bucket:N", title="Bucket"),
+                     alt.Tooltip("Count:Q")]
+        )
+        .properties(height=380, title=f"Inactivity by {ref_pick} — Academic Counselor on X-axis (Top {len(top_owners)})")
+    )
+    st.altair_chart(chart_owner_x, use_container_width=True)
+
+    # Owner table for currently selected inactivity range (actionable)
+    st.markdown("#### Owners in selected inactivity range")
+    owner_range = (
+        d_work.loc[range_mask, "_owner"]
+             .fillna("Unknown").astype(str)
+             .value_counts().reset_index()
+    )
+    owner_range.columns = ["Academic Counselor", "Count"]
+    owner_range["Share %"] = (owner_range["Count"] / max(int(range_mask.sum()), 1) * 100).round(1)
+    st.dataframe(owner_range, use_container_width=True)
+
+    st.download_button(
+        "Download CSV — Owners (selected inactivity range)",
+        data=owner_range.to_csv(index=False).encode("utf-8"),
+        file_name="lead_movement_owners_selected_range.csv",
+        mime="text/csv",
+        key="lm_owner_dl"
+    )
+
+    with st.expander("Show matching rows by owner (first 1000)"):
+        cols_show_owner = []
+        for c in [create_col, ref_col, dealstage_col, country_col, source_col, deal_owner_raw, acad_couns_raw]:
+            if c and c in d_work.columns:
+                cols_show_owner.append(c)
+        preview_owner = d_work.loc[range_mask, cols_show_owner].head(1000)
+        st.dataframe(preview_owner, use_container_width=True)
+
 
 
 elif view == "AC Wise Detail":
