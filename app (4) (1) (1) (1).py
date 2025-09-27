@@ -2859,7 +2859,7 @@ elif view == "Lead Movement":
             max_top = min(20, max(5, len(owner_counts_all)))
             top_n = st.number_input("Top N owners for charts", min_value=5, max_value=max_top, value=min(10, max_top), step=1, key="lm_owner_topn")
 
-        # Prepare data (limit to Top-N by total presence)
+        # Limit to Top-N by presence for readability
         top_owners = owner_counts_all.head(int(top_n)).index.tolist()
         d_top = d_work[d_work["_owner"].isin(top_owners)].copy()
 
@@ -2882,7 +2882,7 @@ elif view == "Lead Movement":
             st.altair_chart(chart_owner_agg, use_container_width=True)
 
         else:
-            # Split mode: stacked by owner across buckets
+            # Split mode: stacked by owner across buckets (Bucket on x, colors = owner)
             by_owner_bucket = (
                 d_top.groupby(["Bucket", "_owner"])
                      .size().reset_index(name="Count")
@@ -2900,7 +2900,28 @@ elif view == "Lead Movement":
             )
             st.altair_chart(chart_owner_split, use_container_width=True)
 
-        # Owner table for currently selected inactivity range (more actionable)
+        # >>> NEW: Owner on X-axis stacked by inactivity bucket <<<
+        st.markdown("#### Inactivity distribution — stacked by Bucket (Owner on X-axis)")
+        owner_x_bucket = (
+            d_top.groupby(["_owner", "Bucket"])
+                .size().reset_index(name="Count")
+        )
+        chart_owner_x = (
+            alt.Chart(owner_x_bucket)
+            .mark_bar(opacity=0.9)
+            .encode(
+                x=alt.X("_owner:N", title="Academic Counselor", axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("Count:Q", stack=True, title="Count"),
+                color=alt.Color("Bucket:N", sort=bucket_order, title="Inactivity bucket (days)"),
+                tooltip=[alt.Tooltip("_owner:N", title="Academic Counselor"),
+                         alt.Tooltip("Bucket:N", title="Bucket"),
+                         alt.Tooltip("Count:Q")]
+            )
+            .properties(height=380, title=f"Inactivity by {ref_pick} — Academic Counselor on X-axis (Top {len(top_owners)})")
+        )
+        st.altair_chart(chart_owner_x, use_container_width=True)
+
+        # Owner table for currently selected inactivity range
         st.markdown("#### Owners in selected inactivity range")
         owner_range = (
             d_work.loc[range_mask, "_owner"]
