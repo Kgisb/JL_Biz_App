@@ -1,3 +1,4 @@
+# app.py — JetLearn: MIS + Predictibility + Trend & Analysis + 80-20 (Merged, de-conflicted)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -162,14 +163,14 @@ if "data_src" not in st.session_state:
 
 with st.sidebar:
     st.header("JetLearn • Navigation")
-    # Make MIS the default so you see content immediately
     view = st.radio(
         "Go to",
-        ["Dashboard", "MIS", "Predictibility", "AC Wise Detail", "Trend & Analysis", "80-20", "Stuck deals", "Daily business", "Lead Movement"],
-        index=1
+        ["Dashboard", "MIS", "Predictibility", "AC Wise Detail", "Trend & Analysis", "80-20", "Stuck deals", "Daily business", "Lead Movement"],  # ← add this
+        index=0
     )
     track = st.radio("Track", ["Both", "AI Coding", "Math"], index=0)
     st.caption("Use MIS for status; Predictibility for forecast; Trend & Analysis for grouped drilldowns; 80-20 for Pareto & Mix.")
+
 
 st.title("📊 JetLearn – Unified App")
 
@@ -225,6 +226,7 @@ cal_resched_col     = find_col(df, ["Calibration Rescheduled Date","Calibration 
 cal_done_col        = find_col(df, ["Calibration Done Date","Calibration done date","Calibration_Done_Date"])
 calibration_slot_col = find_col(df, ["Calibration Slot (Deal)", "Calibration Slot", "Cal Slot (Deal)", "Cal Slot"])
 
+
 if not create_col or not pay_col:
     st.error("Could not find required date columns. Need 'Create Date' and 'Payment Received Date' (or close variants).")
     st.stop()
@@ -249,6 +251,7 @@ def prep_options(series: pd.Series):
     return ["All"] + vals
 
 with st.expander("Filters (apply to MIS / Predictibility / Trend & Analysis)", expanded=False):
+    
     if counsellor_col:
         sel_counsellors = st.multiselect("Academic Counsellor", options=prep_options(df[counsellor_col]), default=["All"])
     else:
@@ -280,7 +283,7 @@ def apply_filters(
     if counsellor_col and sel_counsellors and "All" not in sel_counsellors:
         f = f[f[counsellor_col].astype(str).isin(sel_counsellors)]
     if country_col and sel_countries and "All" not in sel_countries:
-        f = f[f[country_col].astype(str).isin(sel_countries)]
+        f = f[f[country_col].astype(str).isin(sel_counsellors)]
     if source_col and sel_sources and "All" not in sel_sources:
         f = f[f[source_col].astype(str).isin(sel_sources)]
     return f
@@ -671,6 +674,8 @@ def predict_running_month(df_f: pd.DataFrame, create_col: str, pay_col: str, sou
     }
     return tbl, totals
 
+
+
 def predict_chart_stacked(tbl: pd.DataFrame):
     if tbl.empty:
         return alt.Chart(pd.DataFrame({"x":[],"y":[]}))
@@ -793,31 +798,18 @@ def build_pareto(df: pd.DataFrame, group_col: str, label: str) -> pd.DataFrame:
 
 def pareto_chart(tbl: pd.DataFrame, label: str, title: str):
     if tbl.empty:
-        return alt.Chart(pd.DataFrame({"x":[],"y":[]}))
+        return alt.Chart(pd.DataFrame({"x":[],"y":[]})) 
     base = alt.Chart(tbl).encode(x=alt.X(f"{label}:N", sort=list(tbl[label])))
-
-    # Left axis: Counts (bars)
     bars = base.mark_bar(opacity=0.85).encode(
         y=alt.Y("Count:Q", axis=alt.Axis(title="Enrollments (count)")),
         tooltip=[alt.Tooltip(f"{label}:N"), alt.Tooltip("Count:Q")]
     )
-
-    # Right axis: Cumulative % (fixed 0–100 domain so it stays the same)
     line = base.mark_line(point=True).encode(
-        y=alt.Y(
-            "CumPct:Q",
-            axis=alt.Axis(title="Cumulative %", orient="right"),
-            scale=alt.Scale(domain=[0, 100])
-        ),
+        y=alt.Y("CumPct:Q", axis=alt.Axis(title="Cumulative %", orient="right")),
         color=alt.value("#16a34a"),
         tooltip=[alt.Tooltip(f"{label}:N"), alt.Tooltip("CumPct:Q", format=".1f")]
     )
-
-    # 80% reference rule on the same fixed 0–100 scale
-    rule80 = alt.Chart(pd.DataFrame({"y":[80.0]})).mark_rule(strokeDash=[4,4]).encode(
-        y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 100]))
-    )
-
+    rule80 = alt.Chart(pd.DataFrame({"y":[80.0]})).mark_rule(strokeDash=[4,4]).encode(y="y:Q")
     return alt.layer(bars, line, rule80).resolve_scale(y='independent').properties(title=title, height=360)
 
 def months_back_list(end_d: date, k: int):
@@ -827,9 +819,6 @@ def months_back_list(end_d: date, k: int):
 # ======================
 # RENDER: Views
 # ======================
-if view == "Dashboard":
-    st.info("Select **MIS** from the left to see KPIs and charts. (Dashboard placeholder)")
-
 if view == "MIS":
     show_all = st.checkbox("Show all preset periods (Yesterday • Today • Last Month • This Month)", value=False)
     if show_all:
@@ -907,7 +896,6 @@ if view == "MIS":
                                               denom_start=denom_start, denom_end=denom_end,
                                               create_col=create_col, pay_col=pay_col)
                         st.altair_chart(trend_chart(ts, "Trend: Leads (bars) vs Enrolments (lines)"), use_container_width=True)
-
 
 
 elif view == "Predictibility":
