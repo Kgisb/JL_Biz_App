@@ -1,4 +1,5 @@
 # app.py — JetLearn: MIS + Predictibility + Trend & Analysis + 80-20 (Merged, de-conflicted)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -211,7 +212,7 @@ df = load_csv(data_src)
 dealstage_col = find_col(df, ["Deal Stage","Deal stage","Stage","Deal Status","Stage Name","Deal Stage Name"])
 df, _removed = exclude_invalid_deals(df, dealstage_col)
 if dealstage_col:
-    st.caption(f"Excluded “1.2 Invalid deal(s)”: **{_removed:,}** rows (column: **{dealstage_col}**).")
+    st.caption(f"Excluded “1.2 Invalid deal(s)”: *{_removed:,}* rows (column: *{dealstage_col}*).")
 else:
     st.info("Deal Stage column not found — cannot auto-exclude “1.2 Invalid deal(s)”. Check your file.")
 
@@ -236,7 +237,7 @@ tmp_create_all = coerce_datetime(df[create_col])
 missing_create = int(tmp_create_all.isna().sum())
 if missing_create > 0:
     df = df.loc[tmp_create_all.notna()].copy()
-    st.caption(f"Removed rows with missing/invalid **Create Date**: **{missing_create:,}**")
+    st.caption(f"Removed rows with missing/invalid *Create Date: **{missing_create:,}*")
 
 # Presets
 today = date.today()
@@ -283,7 +284,7 @@ def apply_filters(
     if counsellor_col and sel_counsellors and "All" not in sel_counsellors:
         f = f[f[counsellor_col].astype(str).isin(sel_counsellors)]
     if country_col and sel_countries and "All" not in sel_countries:
-        f = f[f[country_col].astype(str).isin(sel_counsellors)]
+        f = f[f[country_col].astype(str).isin(sel_countries)]
     if source_col and sel_sources and "All" not in sel_sources:
         f = f[f[source_col].astype(str).isin(sel_sources)]
     return f
@@ -295,10 +296,10 @@ if track != "Both":
         _norm = df_f[pipeline_col].map(normalize_pipeline).fillna("Other")
         df_f = df_f.loc[_norm == track].copy()
     else:
-        st.warning("Pipeline column not found — the Track filter can’t be applied.", icon="⚠️")
+        st.warning("Pipeline column not found — the Track filter can’t be applied.", icon="⚠")
 
-st.caption(f"Rows in scope after filters: **{len(df_f):,}**")
-st.caption(f"Track filter: **{track}**")
+st.caption(f"Rows in scope after filters: *{len(df_f):,}*")
+st.caption(f"Track filter: *{track}*")
 
 # ======================
 # Shared functions for MIS / Trend / Predictibility
@@ -549,9 +550,9 @@ def render_period_block(
 def add_month_cols(df: pd.DataFrame, create_col: str, pay_col: str) -> pd.DataFrame:
     d = df.copy()
     d["_create_dt"] = coerce_datetime(df[create_col])
-    d["_pay_dt"] = coerce_datetime(df[pay_col])
-    d["_create_m"] = d["_create_dt"].dt.to_period("M")
-    d["_pay_m"] = d["_pay_dt"].dt.to_period("M")
+    d["_pay_dt"]    = coerce_datetime(df[pay_col])
+    d["_create_m"]  = d["_create_dt"].dt.to_period("M")
+    d["_pay_m"]     = d["_pay_dt"].dt.to_period("M")
     d["_same_month"] = (d["_create_m"] == d["_pay_m"])
     return d
 
@@ -621,7 +622,7 @@ def predict_running_month(df_f: pd.DataFrame, create_col: str, pay_col: str, sou
     else:
         # include Unknown deal source in Actual-to-date
         realized_by_src = (
-            d_cur.assign(**{source_col: d_cur[source_col].fillna("Unknown").astype(str)})
+            d_cur.assign({source_col: d_cur[source_col].fillna("Unknown").astype(str)})
                 .groupby(source_col).size().rename("A").reset_index()
         )
 
@@ -798,7 +799,7 @@ def build_pareto(df: pd.DataFrame, group_col: str, label: str) -> pd.DataFrame:
 
 def pareto_chart(tbl: pd.DataFrame, label: str, title: str):
     if tbl.empty:
-        return alt.Chart(pd.DataFrame({"x":[],"y":[]})) 
+        return alt.Chart(pd.DataFrame({"x":[],"y":[]}))
     base = alt.Chart(tbl).encode(x=alt.X(f"{label}:N", sort=list(tbl[label])))
     bars = base.mark_bar(opacity=0.85).encode(
         y=alt.Y("Count:Q", axis=alt.Axis(title="Enrollments (count)")),
@@ -843,7 +844,7 @@ if view == "MIS":
         with tabs[3]:
             render_period_block(df_f, "This Month (MTD)", this_m_start, this_m_end_mtd, this_m_start, create_col, pay_col, pipeline_col, track)
         with tabs[4]:
-            st.markdown("Select a **payments period** and choose the **Conversion% denominator** mode.")
+            st.markdown("Select a *payments period* and choose the *Conversion% denominator* mode.")
             colc1, colc2 = st.columns(2)
             with colc1: custom_start = st.date_input("Payments period start", value=this_m_start, key="mis_cust_pay_start")
             with colc2: custom_end   = st.date_input("Payments period end (inclusive)", value=this_m_end, key="mis_cust_pay_end")
