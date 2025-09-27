@@ -162,10 +162,11 @@ if "data_src" not in st.session_state:
 
 with st.sidebar:
     st.header("JetLearn • Navigation")
+    # Make MIS the default so you see content immediately
     view = st.radio(
         "Go to",
-        ["Dashboard", "MIS", "Predictibility", "AC Wise Detail", "Trend & Analysis", "80-20", "Stuck deals", "Daily business", "Lead Movement"],  # ← add this
-        index=0
+        ["Dashboard", "MIS", "Predictibility", "AC Wise Detail", "Trend & Analysis", "80-20", "Stuck deals", "Daily business", "Lead Movement"],
+        index=1
     )
     track = st.radio("Track", ["Both", "AI Coding", "Math"], index=0)
     st.caption("Use MIS for status; Predictibility for forecast; Trend & Analysis for grouped drilldowns; 80-20 for Pareto & Mix.")
@@ -224,7 +225,6 @@ cal_resched_col     = find_col(df, ["Calibration Rescheduled Date","Calibration 
 cal_done_col        = find_col(df, ["Calibration Done Date","Calibration done date","Calibration_Done_Date"])
 calibration_slot_col = find_col(df, ["Calibration Slot (Deal)", "Calibration Slot", "Cal Slot (Deal)", "Cal Slot"])
 
-
 if not create_col or not pay_col:
     st.error("Could not find required date columns. Need 'Create Date' and 'Payment Received Date' (or close variants).")
     st.stop()
@@ -249,7 +249,6 @@ def prep_options(series: pd.Series):
     return ["All"] + vals
 
 with st.expander("Filters (apply to MIS / Predictibility / Trend & Analysis)", expanded=False):
-    
     if counsellor_col:
         sel_counsellors = st.multiselect("Academic Counsellor", options=prep_options(df[counsellor_col]), default=["All"])
     else:
@@ -547,9 +546,9 @@ def render_period_block(
 def add_month_cols(df: pd.DataFrame, create_col: str, pay_col: str) -> pd.DataFrame:
     d = df.copy()
     d["_create_dt"] = coerce_datetime(df[create_col])
-    d["_pay_dt"]    = coerce_datetime(df[pay_col])
-    d["_create_m"]  = d["_create_dt"].dt.to_period("M")
-    d["_pay_m"]     = d["_pay_dt"].dt.to_period("M")
+    d["_pay_dt"] = coerce_datetime(df[pay_col])
+    d["_create_m"] = d["_create_dt"].dt.to_period("M")
+    d["_pay_m"] = d["_pay_dt"].dt.to_period("M")
     d["_same_month"] = (d["_create_m"] == d["_pay_m"])
     return d
 
@@ -671,8 +670,6 @@ def predict_running_month(df_f: pd.DataFrame, create_col: str, pay_col: str, sou
         "Remaining_Days": remaining_days
     }
     return tbl, totals
-
-
 
 def predict_chart_stacked(tbl: pd.DataFrame):
     if tbl.empty:
@@ -830,6 +827,9 @@ def months_back_list(end_d: date, k: int):
 # ======================
 # RENDER: Views
 # ======================
+if view == "Dashboard":
+    st.info("Select **MIS** from the left to see KPIs and charts. (Dashboard placeholder)")
+
 if view == "MIS":
     show_all = st.checkbox("Show all preset periods (Yesterday • Today • Last Month • This Month)", value=False)
     if show_all:
