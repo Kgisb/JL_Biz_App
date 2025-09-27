@@ -2306,304 +2306,6 @@ elif view == "Stuck deals":
             )
 
 
-elif view == "Dashboard":
-    st.subheader("Dashboard – Key Business Snapshot")
-
-    # --- Cash-in table from Google Sheet ---
-    st.markdown("### This Month Cash-in")
-    SHEET_ID = "1tw6gTaUEycAD5DJjw5ASSdF-WwYEt2TqcMb2lTKtKps"   # your sheet ID
-    GID = "0"   # tab gid
-
-    @st.cache_data(ttl=300)
-    def _load_gsheet_range(sheet_id, gid, cell_range="A2:D13"):
-        try:
-            url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}&range={cell_range}"
-            df_all = pd.read_csv(url)
-            return df_all
-        except Exception as e:
-            st.warning(f"⚠️ Could not load Google Sheet data: {e}")
-            return pd.DataFrame()
-
-    df_cash = _load_gsheet_range(SHEET_ID, GID)
-    if not df_cash.empty:
-        st.dataframe(df_cash, use_container_width=True, hide_index=True)
-    else:
-        st.info("No cash-in data available from Google Sheet right now.")
-
-    st.divider()
-
-    # Guards
-    if not create_col or not pay_col:
-        st.error("Required columns missing: Create Date / Payment Received Date.")
-        st.stop()
-
-    # Prep frame (filtered scope already applied in df_f)
-    d = df_f.copy()
-    d["_c"] = coerce_datetime(d[create_col])
-    d["_p"] = coerce_datetime(d[pay_col])
-
-    if source_col and source_col in d.columns:
-        d["_src"] = d[source_col].fillna("Unknown").astype(str)
-    else:
-        d["_src"] = "Unknown"
-
-    # Period helpers
-    yday = date.today() - timedelta(days=1)
-    this_m_start, this_m_end = month_bounds(date.today())
-    last_m_start, last_m_end = last_month_bounds(date.today())
-
-    PERIODS = [
-        ("Yesterday", yday, yday),
-        ("Today", date.today(), date.today()),
-        ("Last Month", last_m_start, last_m_end),
-        ("This Month (MTD)", this_m_start, date.today())
-    ]
-
-    # Small helper – build a compact KPI block with two mini visuals
-    def kpi_block(title, start_d: date, end_d: date):
-        # Window masks
-        c_in = d["_c"].dt.date.between(start_d, end_d)
-        p_in = d["_p"].dt.date.between(start_d, end_d)
-
-        # Totals
-        created_total = int(c_in.sum())
-        cohort_pay    = int(p_in.sum())
-
-        # MTD (same-deal population within *this* window)
-        base_same = d.loc[c_in, ["_c","_p","_src"]].copy()
-        if not base_same.empty:
-            same_pay = int(base_same["_p"].dt.date.between(start_d, end_d).sum())
-        else:
-            same_pay = 0
-
-        # Referral slices
-        ref_mask_created = c_in & d["_src"].str.contains("referr", case=False, na=False)
-        ref_deals_created = int(ref_mask_created.sum())
-
-        ref_mask_cohort = p_in & d["_src"].str.contains("referr", case=False, na=False)
-        ref_pay_cohort = int(ref_mask_cohort.sum())
-
-        if not base_same.empty:
-            ref_mask_same = base_same["_src"].str.contains("referr", case=False, na=False) & base_same["_p"].dt.date.between(start_d, end_d)
-            ref_pay_same = int(ref_mask_same.sum())
-        else:
-            ref_pay_same = 0
-
-        # Mini charts (circles): Payments – MTD vs Cohort & Referral MTD vs Referral Cohort
-        mini1 = alt.Chart(pd.DataFrame({
-            "Type": ["Payments – Same-deal", "Payments – Cohort"],
-            "Value": [same_pay, cohort_pay]
-        })).mark_circle(size=700, opacity=0.85).encode(
-            x=alt.X("Type:N", title=None),
-            y=alt.Y("Value:Q", title="Payments"),
-            tooltip=["Type:N", alt.Tooltip("Value:Q")],
-            color=alt.Color("Type:N", legend=None)
-        ).properties(height=160)
-
-        mini2 = alt.Chart(pd.DataFrame({
-            "Type": ["Referral – Same-deal", "Referral – Cohort"],
-            "Value": [ref_pay_same, ref_pay_cohort]
-        })).mark_circle(size=700, opacity=0.85).encode(
-            x=alt.X("Type:N", title=None),
-            y=alt.Y("Value:Q", title="Referral conversions"),
-            tooltip=["Type:N", alt.Tooltip("Value:Q")],
-            color=alt.Color("Type:N", legend=None)
-        ).properties(height=160)
-
-        # KPI cards
-        c1, c2, c3, c4 = st.columns([1,1,1,2])
-        with c1:
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>{title} — Deals Created</div>"
-                f"<div class='kpi-value'>{created_total:,}</div>"
-                f"<div class='kpi-sub'>{start_d} → {end_d}</div></div>", unsafe_allow_html=True)
-        with c2:
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>{title} — Enrolments (Cohort)</div>"
-                f"<div class='kpi-value'>{cohort_pay:,}</div>"
-                f"<div class='kpi-sub'>Payments whose date falls in window</div></div>", unsafe_allow_html=True)
-        with c3:
-            conv = (cohort_pay/created_total*100.0) if created_total>0 else 0.0
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>{title} — Conversion% (Cohort/Created)</div>"
-                f"<div class='kpi-value'>{conv:.1f}%</div>"
-                f"<div class='kpi-sub'>Num: {cohort_pay:,} • Den: {created_total:,}</div></div>", unsafe_allow_html=True)
-
-        with c4:
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>{title} — Referral slice</div>"
-                f"<div class='kpi-sub'>Referral deals created: <b>{ref_deals_created:,}</b></div>"
-                f"<div class='kpi-sub'>Referral conversions — Same-deal: <b>{ref_pay_same:,}</b> • Cohort: <b>{ref_pay_cohort:,}</b></div>"
-                f"</div>", unsafe_allow_html=True)
-
-        cc1, cc2 = st.columns(2)
-        with cc1:
-            st.altair_chart(mini1, use_container_width=True)
-        with cc2:
-            st.altair_chart(mini2, use_container_width=True)
-
-    # Render the four period blocks (two per row)
-    row1, row2 = st.columns(2)
-    with row1:
-        kpi_block("Yesterday", PERIODS[0][1], PERIODS[0][2])
-    with row2:
-        kpi_block("Today", PERIODS[1][1], PERIODS[1][2])
-
-    st.divider()
-    row3, row4 = st.columns(2)
-    with row3:
-        kpi_block("Last Month", PERIODS[2][1], PERIODS[2][2])
-    with row4:
-        kpi_block("This Month (MTD)", PERIODS[3][1], PERIODS[3][2])
-
-    # ---- Predictability (this month) box ----
-    st.markdown("<div class='section-title'>Predictability — This Month</div>", unsafe_allow_html=True)
-
-    # Helper: dynamic targets based on Academic Counsellor global filter
-    def get_dynamic_targets(sel_counsellors_list):
-        if sel_counsellors_list and ("All" not in sel_counsellors_list):
-            ai_tgt, math_tgt = 20, 8
-        else:
-            ai_tgt, math_tgt = 150, 50
-        return {"AI Coding": ai_tgt, "Math": math_tgt, "Total": ai_tgt + math_tgt}
-
-    dynamic_targets = get_dynamic_targets(sel_counsellors)
-    tgt_ai   = float(dynamic_targets["AI Coding"])
-    tgt_math = float(dynamic_targets["Math"])
-    tgt_tot  = float(dynamic_targets["Total"])
-
-    # Forecast from predict_running_month
-    lookback = 3
-    weighted = True
-    tbl_pred, totals_pred = predict_running_month(
-        df_f, create_col, pay_col, source_col, lookback, weighted, today=date.today()
-    )
-
-    A = float(totals_pred.get("A_Actual_ToDate", 0.0))
-    B = float(totals_pred.get("B_Remaining_SameMonth", 0.0))
-    C = float(totals_pred.get("C_Remaining_PrevMonths", 0.0))
-    projected = float(totals_pred.get("Projected_MonthEnd_Total", A + B + C))
-
-    cur_start, cur_end = month_bounds(date.today())
-    elapsed_days = (date.today() - cur_start).days + 1
-    total_days   = (cur_end - cur_start).days + 1
-    remaining_days = max(0, total_days - elapsed_days)
-
-    avg_actual_per_day    = A / elapsed_days if elapsed_days > 0 else 0.0
-    avg_projected_per_day = projected / total_days if total_days > 0 else 0.0
-
-    d_m = add_month_cols(df_f, create_col, pay_col)
-    cur_period = pd.Period(date.today(), freq="M")
-    cur_paid = d_m[d_m["_pay_m"] == cur_period].copy()
-
-    if pipeline_col and (pipeline_col in cur_paid.columns):
-        pl_series = cur_paid[pipeline_col].map(normalize_pipeline).fillna("Other")
-    else:
-        pl_series = pd.Series(["Other"] * len(cur_paid), index=cur_paid.index)
-
-    A_ai   = float((pl_series == "AI Coding").sum())
-    A_math = float((pl_series == "Math").sum())
-
-    if track == "AI Coding":
-        target_total = tgt_ai
-        gap_total = max(0.0, target_total - A)
-        req_avg_total_per_day = (gap_total / remaining_days) if remaining_days > 0 else (0.0 if gap_total <= 0 else float("inf"))
-        show_per_pipeline_panels = False
-        target_subtitle = "AI Coding target"
-    elif track == "Math":
-        target_total = tgt_math
-        gap_total = max(0.0, target_total - A)
-        req_avg_total_per_day = (gap_total / remaining_days) if remaining_days > 0 else (0.0 if gap_total <= 0 else float("inf"))
-        show_per_pipeline_panels = False
-        target_subtitle = "Math target"
-    else:
-        target_total = tgt_tot
-        gap_total = max(0.0, target_total - A)
-        req_avg_total_per_day = (gap_total / remaining_days) if remaining_days > 0 else (0.0 if gap_total <= 0 else float("inf"))
-        show_per_pipeline_panels = True
-        target_subtitle = f"AI {int(tgt_ai)} + Math {int(tgt_math)}"
-
-    p1, p2, p3, p4 = st.columns(4)
-    with p1:
-        st.markdown(
-            f"<div class='kpi-card'><div class='kpi-title'>A · Actual to date</div>"
-            f"<div class='kpi-value'>{A:.1f}</div>"
-            f"<div class='kpi-sub'>{cur_start} → {date.today()}</div></div>", unsafe_allow_html=True)
-    with p2:
-        st.markdown(
-            f"<div class='kpi-card'><div class='kpi-title'>Projected Month-End (A+B+C)</div>"
-            f"<div class='kpi-value'>{projected:.1f}</div>"
-            f"<div class='kpi-sub'>Remaining days: {remaining_days}</div></div>", unsafe_allow_html=True)
-    with p3:
-        st.markdown(
-            f"<div class='kpi-card'><div class='kpi-title'>Avg enrolments/day</div>"
-            f"<div class='kpi-value'>{avg_actual_per_day:.2f}</div>"
-            f"<div class='kpi-sub'>Actual so far</div></div>", unsafe_allow_html=True)
-    with p4:
-        st.markdown(
-            f"<div class='kpi-card'><div class='kpi-title'>Projected avg/day</div>"
-            f"<div class='kpi-value'>{avg_projected_per_day:.2f}</div>"
-            f"<div class='kpi-sub'>For the full month</div></div>", unsafe_allow_html=True)
-
-    t1, t2 = st.columns(2)
-    with t1:
-        st.markdown(
-            f"<div class='kpi-card'><div class='kpi-title'>Target (dynamic)</div>"
-            f"<div class='kpi-value'>{int(target_total)}</div>"
-            f"<div class='kpi-sub'>{target_subtitle}</div></div>", unsafe_allow_html=True)
-    with t2:
-        if np.isfinite(req_avg_total_per_day):
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>Required avg/day to hit target</div>"
-                f"<div class='kpi-value'>{req_avg_total_per_day:.2f}</div>"
-                f"<div class='kpi-sub'>Given current A and remaining {remaining_days} days</div></div>", unsafe_allow_html=True)
-        else:
-            st.markdown(
-                f"<div class='kpi-card'><div class='kpi-title'>Required avg/day to hit target</div>"
-                f"<div class='kpi-value'>–</div>"
-                f"<div class='kpi-sub'>Target met or no days left</div></div>", unsafe_allow_html=True)
-
-    if show_per_pipeline_panels:
-        gap_ai   = max(0.0, tgt_ai - A_ai)
-        gap_math = max(0.0, tgt_math - A_math)
-        req_ai_per_day   = (gap_ai / remaining_days) if remaining_days > 0 else (0.0 if gap_ai <= 0 else float("inf"))
-        req_math_per_day = (gap_math / remaining_days) if remaining_days > 0 else (0.0 if gap_math <= 0 else float("inf"))
-
-        q1, q2 = st.columns(2)
-        with q1:
-            req_ai_txt = f"{req_ai_per_day:.2f}" if np.isfinite(req_ai_per_day) else "–"
-            st.markdown(
-                f"<div class='kpi-card'>"
-                f"<div class='kpi-title'>AI Coding — Target {int(tgt_ai)}</div>"
-                f"<div class='kpi-value'>{int(A_ai)}</div>"
-                f"<div class='kpi-sub'>A (MTD payments) • Required/day: <b>{req_ai_txt}</b></div>"
-                f"</div>", unsafe_allow_html=True)
-        with q2:
-            req_math_txt = f"{req_math_per_day:.2f}" if np.isfinite(req_math_per_day) else "–"
-            st.markdown(
-                f"<div class='kpi-card'>"
-                f"<div class='kpi-title'>Math — Target {int(tgt_math)}</div>"
-                f"<div class='kpi-value'>{int(A_math)}</div>"
-                f"<div class='kpi-sub'>A (MTD payments) • Required/day: <b>{req_math_txt}</b></div>"
-                f"</div>", unsafe_allow_html=True)
-
-    if not tbl_pred.empty:
-        melt = tbl_pred.melt(
-            id_vars=["Source"],
-            value_vars=["A_Actual_ToDate","B_Remaining_SameMonth","C_Remaining_PrevMonths"],
-            var_name="Component",
-            value_name="Value"
-        )
-        chart = alt.Chart(melt).mark_bar().encode(
-            x=alt.X("Source:N", sort=alt.SortField("Source")),
-            y=alt.Y("Value:Q", stack=True, title="Enrolments"),
-            color=alt.Color("Component:N", title="Component", legend=alt.Legend(orient="bottom")),
-            tooltip=["Source:N","Component:N", alt.Tooltip("Value:Q", format=",.1f")]
-        ).properties(height=300, title=f"Predictability components by source (A, B, C){' — '+track if track!='Both' else ''}")
-        st.altair_chart(chart, use_container_width=True)
-    else:
-        st.info("No running-month payments in scope to visualize predictability components.")
-
 elif view == "Lead Movement":
     st.subheader("Lead Movement — inactivity by Last Connected / Lead Activity (Create-date scoped)")
 
@@ -2685,8 +2387,7 @@ elif view == "Lead Movement":
 
     # Compute inactivity days from chosen reference column
     d_work["_ref_dt"] = coerce_datetime(d_work[ref_col])
-    # Safe diff: NaT -> NaN
-    d_work["_days_since"] = (pd.Timestamp(today) - d_work["_ref_dt"]).dt.days
+    d_work["_days_since"] = (pd.Timestamp(today) - d_work["_ref_dt"]).dt.days  # NaT-safe diff
 
     # ---- Slider (inactivity range)
     valid_days = d_work["_days_since"].dropna()
@@ -2694,7 +2395,6 @@ elif view == "Lead Movement":
         min_d, max_d = 0, 90
     else:
         min_d, max_d = int(valid_days.min()), int(valid_days.max())
-        # clean bounds
         min_d = min(0, min_d)
         max_d = max(1, max_d)
     days_low, days_high = st.slider(
@@ -2949,12 +2649,23 @@ elif view == "Lead Movement":
         )
         st.altair_chart(chart_owner_split, use_container_width=True)
 
-    # Additional chart: Owner on X-axis, stacked by bucket
+    # ================= Option: Exclude Unknown on Owner-on-X chart =================
     st.markdown("#### Inactivity distribution — stacked by Bucket (Owner on X-axis)")
-    owner_x_bucket = (
-        d_top.groupby(["_owner", "Bucket"])
-             .size().reset_index(name="Count")
+    exclude_unknown_owner = st.checkbox(
+        "Exclude ‘Unknown’ owners from this chart",
+        value=True,
+        key="lm_owner_exclude_unknown_xaxis"
     )
+
+    owner_x_df = d_top.copy()
+    if exclude_unknown_owner:
+        owner_x_df = owner_x_df[owner_x_df["_owner"] != "Unknown"]
+
+    owner_x_bucket = (
+        owner_x_df.groupby(["_owner", "Bucket"])
+                  .size().reset_index(name="Count")
+    )
+
     chart_owner_x = (
         alt.Chart(owner_x_bucket)
         .mark_bar(opacity=0.9)
